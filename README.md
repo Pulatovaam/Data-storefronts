@@ -51,7 +51,8 @@
 #### 1.⁠ ⁠Импорт оператора для выполнения SQL-запросов:      
 ```from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator```         
 #### 2.⁠ ⁠SQL-запросы для создания таблиц и view:        
-```pithon items_datamart_sql = """DROP EXTERNAL TABLE IF EXISTS "anastasija-pulatova-fqe3933".seller_items CASCADE;
+````
+``` items_datamart_sql = """DROP EXTERNAL TABLE IF EXISTS "anastasija-pulatova-fqe3933".seller_items CASCADE;
 CREATE EXTERNAL TABLE "anastasija-pulatova-fqe3933".seller_items(
     sku_id BIGINT,
     title TEXT,
@@ -95,36 +96,107 @@ brands_report_view_sql = """CREATE OR REPLACE VIEW "anastasija-pulatova-fqe3933"
            SUM(total_revenue)::FLOAT8 as total_revenue,
            COUNT(sku_id)::BIGINT as items_count
     FROM "anastasija-pulatova-fqe3933".seller_items
-    GROUP BY brand, group_type, country;"""    ```
+    GROUP BY brand, group_type, country;"""   
+```
+````
 
 #### 3.Код для создания задач с использованием SQLExecuteQueryOperator соответствует заданию:              
 
 - ⁠Создание таблицы seller_items:        
 
-```create_table_items_datamart_task = SQLExecuteQueryOperator(
+````
+```
+create_table_items_datamart_task = SQLExecuteQueryOperator(
     task_id="items_datamart",
     conn_id="greenplume_karpov",
     sql=items_datamart_sql,
     split_statements=True,
     return_last=False,
-)```       
+)
+```
+````     
 
 - ⁠Создание представления unreliable_sellers_view:        
-```create_unreliable_sellers_report_view = SQLExecuteQueryOperator(
+````
+```
+create_unreliable_sellers_report_view = SQLExecuteQueryOperator(
     task_id="create_unreliable_sellers_report_view",
     conn_id="greenplume_karpov",
     sql=unreliable_sellers_view_sql,
     split_statements=True,
     return_last=False,
-)```        
+)
+```
+````       
 
 
 - ⁠Создание представления item_brands_view:        
-```create_brands_report_view = SQLExecuteQueryOperator(
+````
+```
+create_brands_report_view = SQLExecuteQueryOperator(
     task_id="create_brands_report_view",
     conn_id="greenplume_karpov",
     sql=brands_report_view_sql,
     split_statements=True,
     return_last=False,
-)```
+)
+```
+````
+#### 4. Создание Dag
+````
+```
+dag_id="startde-project-anastasija-pulatova-fqe3933-dag",
+    default_args = default_args,
+    schedule_interval=None,
+    start_date=pendulum.datetime(2025, 5, 29, tz="UTC"),
+    tags=["final_project"],
+    catchup=False
+) as dag:
 
+    start = EmptyOperator(task_id="start", dag=dag)
+    end = EmptyOperator(task_id="end", dag=dag)
+
+    submit_task = _build_submit_operator(
+        task_id=SUBMIT_NAME,
+        application_file='spark_submit.yaml',
+        link_dag=dag
+    )
+
+    sensor_task = _build_sensor(
+        task_id='job_sensor',
+        application_name=f"{{{{task_instance.xcom_pull(task_ids='{SUBMIT_NAME}')['metadata']['name']}}}}",
+        link_dag=dag
+    )
+
+    create_table_items_datamart_task = SQLExecuteQueryOperator(
+    task_id="items_datamart",
+    conn_id = "greenplume_karpov",
+    sql=items_datamart_sql,
+    split_statements=True,
+    return_last=False,
+)
+    
+    create_unreliable_sellers_report_view = SQLExecuteQueryOperator(
+    task_id="create_unreliable_sellers_report_view",
+    conn_id = "greenplume_karpov",
+    sql=unreliable_sellers_view_sql,
+    split_statements=True,
+    return_last=False,
+)
+    
+    create_brands_report_view = SQLExecuteQueryOperator(
+    task_id="create_brands_report_view",
+    conn_id = "greenplume_karpov",
+    sql=brands_report_view_sql,
+    split_statements=True,
+    return_last=False,
+)
+
+    start >> submit_task >> sensor_task >> create_table_items_datamart_task >> [create_unreliable_sellers_report_view, create_brands_report_view] >> end
+```
+````
+
+## Полученный результат: 
+- Реализовала автоматизированные процессы обработки данных в Apache Airflow с использованием SQLExecuteQueryOperator для выполнения запросов к базе данных Greenplum.
+- Создала внешние таблицы и представления, включая "seller_items", "unreliable_sellers_view" и "item_brands_view", что улучшило анализ данных о товарах и продавцах.
+- Оптимизировала процесс получения аналитической информации, что способствовало более эффективной отчетности и принятия решений на основе данных.
