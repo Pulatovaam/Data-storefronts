@@ -43,8 +43,88 @@
 1. Если товар выставлен на торговую площадку более 100 дней. 
 2. Количество товаров размещенных на складе больше, чем количество заказанных товаров.
 3. В расчете учитываются все позиции предоставленные продавцов на площадке.
- * **View "Отчет брендов"**
+ * **View "Отчет брендов"**      
  Добавьте шаг create_brands_report_view в DAG Airflow для создания view таблицы с отчетом по брендам.      
 ![1750672537924](https://github.com/user-attachments/assets/0b2ac442-120a-4cb9-a0e0-0a325bcc3341)
 
+## Этапы выполнения: 
+#### 1.⁠ ⁠Импорт оператора для выполнения SQL-запросов:      
+```from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator```         
+#### 2.⁠ ⁠SQL-запросы для создания таблиц и view:        
+```pithon items_datamart_sql = """DROP EXTERNAL TABLE IF EXISTS "anastasija-pulatova-fqe3933".seller_items CASCADE;
+CREATE EXTERNAL TABLE "anastasija-pulatova-fqe3933".seller_items(
+    sku_id BIGINT,
+    title TEXT,
+    category TEXT,
+    brand TEXT,
+    seller TEXT,
+    group_type TEXT,
+    country TEXT,
+    availability_items_count BIGINT,
+    ordered_items_count BIGINT,
+    warehouses_count BIGINT,
+    item_price BIGINT,
+    goods_sold_count BIGINT,
+    item_rate FLOAT8,
+    days_on_sell BIGINT,
+    avg_percent_to_sold BIGINT,
+    returned_items_count INTEGER,
+    potential_revenue BIGINT,
+    total_revenue BIGINT,
+    avg_daily_sales FLOAT8,
+    days_to_sold FLOAT8,
+    item_rate_percent FLOAT8
+) LOCATION ('pxf://startde-project/anastasija-pulatova-fqe3933/seller_items?PROFILE=s3:parquet&SERVER=default')
+ON ALL FORMAT 'CUSTOM' (FORMATTER='pxfwritable_import') ENCODING 'UTF8';"""
+
+unreliable_sellers_view_sql = """CREATE OR REPLACE VIEW "anastasija-pulatova-fqe3933".unreliable_sellers_view AS 
+    SELECT seller, 
+           SUM(availability_items_count) as total_overload_items_count,  
+           BOOL_OR(
+                availability_items_count > ordered_items_count 
+                AND days_on_sell > 100
+            ) AS is_unreliable
+    FROM "anastasija-pulatova-fqe3933".seller_items
+    GROUP BY seller;"""
+
+brands_report_view_sql = """CREATE OR REPLACE VIEW "anastasija-pulatova-fqe3933".item_brands_view AS 
+    SELECT brand,
+           group_type,
+           country, 
+           SUM(potential_revenue)::FLOAT8 as potential_revenue,  
+           SUM(total_revenue)::FLOAT8 as total_revenue,
+           COUNT(sku_id)::BIGINT as items_count
+    FROM "anastasija-pulatova-fqe3933".seller_items
+    GROUP BY brand, group_type, country;"""    ```
+
+#### 3.Код для создания задач с использованием SQLExecuteQueryOperator соответствует заданию:              
+
+- ⁠Создание таблицы seller_items:        
+
+```create_table_items_datamart_task = SQLExecuteQueryOperator(
+    task_id="items_datamart",
+    conn_id="greenplume_karpov",
+    sql=items_datamart_sql,
+    split_statements=True,
+    return_last=False,
+)```       
+
+- ⁠Создание представления unreliable_sellers_view:        
+```create_unreliable_sellers_report_view = SQLExecuteQueryOperator(
+    task_id="create_unreliable_sellers_report_view",
+    conn_id="greenplume_karpov",
+    sql=unreliable_sellers_view_sql,
+    split_statements=True,
+    return_last=False,
+)```        
+
+
+- ⁠Создание представления item_brands_view:        
+```create_brands_report_view = SQLExecuteQueryOperator(
+    task_id="create_brands_report_view",
+    conn_id="greenplume_karpov",
+    sql=brands_report_view_sql,
+    split_statements=True,
+    return_last=False,
+)```
 
